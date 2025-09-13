@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Duplicate Image Finder</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-images"></i> Duplicate Image Finder</h1>
+            <p>Upload up to 25 images (max 50MB total) to find duplicates, even when rotated</p>
+        </header>
+
+        <main>
+            <div class="upload-section">
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-content">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        <h3>Drop images here or click to browse</h3>
+                        <p>Supports: PNG, JPG, JPEG, GIF, BMP, TIFF (Max 25 files, 50MB total)</p>
+                        <input type="file" id="fileInput" multiple accept="image/*" style="display: none;">
+                        <button class="browse-btn" onclick="document.getElementById('fileInput').click()">
+                            Browse Files
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="file-list" id="fileList" style="display: none;">
+                    <h4>Selected Files:</h4>
+                    <div id="selectedFiles"></div>
+                    <button class="analyze-btn" id="analyzeBtn" onclick="analyzeImages()">
+                        <i class="fas fa-search"></i> Find Duplicates
+                    </button>
+                </div>
+            </div>
+
+            <div class="results-section" id="resultsSection" style="display: none;">
+                <h2>Analysis Results</h2>
+                <div class="summary" id="summary"></div>
+                
+                <!-- Tab Navigation -->
+                <div class="tab-navigation">
+                    <button class="tab-btn active" onclick="showTab('duplicates')" id="duplicatesTab">
+                        <i class="fas fa-copy"></i> Duplicates
+                    </button>
+                    <button class="tab-btn" onclick="showTab('unique')" id="uniqueTab">
+                        <i class="fas fa-unique"></i> Unique Images
+                    </button>
+                </div>
+                
+                <!-- Tab Content -->
+                <div class="tab-content">
+                    <div class="tab-pane active" id="duplicatesPane">
+                        <div class="duplicate-groups" id="duplicateGroups"></div>
+                    </div>
+                    <div class="tab-pane" id="uniquePane">
+                        <div class="unique-images" id="uniqueImages"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="loading" id="loading" style="display: none;">
+                <div class="spinner"></div>
+                <p>Analyzing images...</p>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        let selectedFiles = [];
+
+        // Drag and drop functionality
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            handleFiles(e.dataTransfer.files);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+        });
+
+        function handleFiles(files) {
+            if (files.length > 25) {
+                alert('Maximum 25 files allowed');
+                return;
+            }
+
+            selectedFiles = Array.from(files).filter(file => file.type.startsWith('image/'));
+            
+            if (selectedFiles.length === 0) {
+                alert('Please select valid image files');
+                return;
+            }
+
+            displaySelectedFiles();
+            document.getElementById('fileList').style.display = 'block';
+        }
+
+        function displaySelectedFiles() {
+            const fileList = document.getElementById('selectedFiles');
+            fileList.innerHTML = '';
+
+            selectedFiles.forEach((file, index) => {
+                const fileItem = document.createElement('div');
+                fileItem.className = 'file-item';
+                fileItem.innerHTML = `
+                    <span class="file-name">${file.name}</span>
+                    <span class="file-size">${formatFileSize(file.size)}</span>
+                    <button class="remove-btn" onclick="removeFile(${index})">
+                        <i class="fas fa-times"></i>
+                    </button>
+                `;
+                fileList.appendChild(fileItem);
+            });
+        }
+
+        function removeFile(index) {
+            selectedFiles.splice(index, 1);
+            if (selectedFiles.length === 0) {
+                document.getElementById('fileList').style.display = 'none';
+            } else {
+                displaySelectedFiles();
+            }
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        async function analyzeImages() {
+            if (selectedFiles.length === 0) return;
+
+            const formData = new FormData();
+            selectedFiles.forEach(file => {
+                formData.append('files', file);
+            });
+
+            // Show loading
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('resultsSection').style.display = 'none';
+
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    displayResults(result);
+                } else {
+                    alert('Error: ' + result.error);
+                }
+            } catch (error) {
+                alert('Error analyzing images: ' + error.message);
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        function displayResults(result) {
+            const summary = document.getElementById('summary');
+            const duplicateGroups = document.getElementById('duplicateGroups');
+            const uniqueImages = document.getElementById('uniqueImages');
+
+            // Display summary
+            summary.innerHTML = `
+                <div class="summary-card">
+                    <div class="summary-item">
+                        <i class="fas fa-images"></i>
+                        <span>Total Images: ${result.total_images}</span>
+                    </div>
+                    <div class="summary-item">
+                        <i class="fas fa-copy"></i>
+                        <span>Duplicate Groups: ${result.duplicate_groups.length}</span>
+                    </div>
+                    <div class="summary-item">
+                        <i class="fas fa-unique"></i>
+                        <span>Unique Images: ${result.unique_images}</span>
+                    </div>
+                </div>
+            `;
+
+            // Display duplicate groups
+            if (result.duplicate_groups.length === 0) {
+                duplicateGroups.innerHTML = '<div class="no-duplicates"><i class="fas fa-check-circle"></i> No duplicates found!</div>';
+            } else {
+                let groupsHTML = '';
+                result.duplicate_groups.forEach((group, index) => {
+                    groupsHTML += `
+                        <div class="duplicate-group">
+                            <h3>Duplicate Group ${index + 1} (${group.count} images)</h3>
+                            <div class="image-grid">
+                                ${group.images.map(img => `
+                                    <div class="image-item">
+                                        <img src="${img.base64}" alt="${img.filename}" title="${img.filename}">
+                                        <div class="image-info">
+                                            <span class="filename">${img.filename}</span>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `;
+                });
+                duplicateGroups.innerHTML = groupsHTML;
+            }
+
+            // Display unique images
+            if (result.unique_images_list && result.unique_images_list.length > 0) {
+                let uniqueHTML = `
+                    <div class="unique-section">
+                        <h3>Unique Images (${result.unique_images_list.length})</h3>
+                        <div class="image-grid">
+                            ${result.unique_images_list.map(img => `
+                                <div class="image-item">
+                                    <img src="${img.base64}" alt="${img.filename}" title="${img.filename}">
+                                    <div class="image-info">
+                                        <span class="filename">${img.filename}</span>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+                uniqueImages.innerHTML = uniqueHTML;
+            } else {
+                uniqueImages.innerHTML = '<div class="no-unique"><i class="fas fa-info-circle"></i> No unique images found.</div>';
+            }
+
+            document.getElementById('resultsSection').style.display = 'block';
+        }
+
+        function showTab(tabName) {
+            // Hide all tab panes
+            document.querySelectorAll('.tab-pane').forEach(pane => {
+                pane.classList.remove('active');
+            });
+            
+            // Remove active class from all tab buttons
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            // Show selected tab pane
+            document.getElementById(tabName + 'Pane').classList.add('active');
+            
+            // Add active class to selected tab button
+            document.getElementById(tabName + 'Tab').classList.add('active');
+        }
+    </script>
+</body>
+</html>
